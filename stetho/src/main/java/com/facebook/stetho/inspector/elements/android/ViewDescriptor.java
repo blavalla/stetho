@@ -192,7 +192,14 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
     getStyleFromValue(
         element,
         "ignored",
-        AccessibilityNodeInfoWrapper.getIgnored(element, nodeInfo),
+        AccessibilityNodeInfoWrapper.getIgnored(nodeInfo, element),
+        null,
+        styles);
+
+    getStyleFromValue(
+        element,
+        "ignored-reasons",
+        AccessibilityNodeInfoWrapper.getIgnoredReasons(nodeInfo, element),
         null,
         styles);
 
