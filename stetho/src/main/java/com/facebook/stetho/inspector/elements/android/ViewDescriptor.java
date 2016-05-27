@@ -9,8 +9,10 @@
 
 package com.facebook.stetho.inspector.elements.android;
 
+import android.support.v4.view.ViewCompat;
 import android.view.View;
 import android.view.ViewDebug;
+import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
 
 import com.facebook.stetho.common.ExceptionUtil;
 import com.facebook.stetho.common.LogUtil;
@@ -54,6 +56,13 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
   @Nullable
   @GuardedBy("this")
   private volatile List<ViewCSSProperty> mViewProperties;
+
+  /**
+   * NOTE: Only access this via {@link #getAccessibilityNodeInfoProperties}.
+   */
+  @Nullable
+  @GuardedBy("this")
+  private volatile List<AccessibilityNodeInfoMethodBackedCSSProperty> mAccessibilityNodeInfoProperties;
 
   private Pattern getWordBoundaryPattern() {
     if (mWordBoundaryPattern == null) {
@@ -107,6 +116,32 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
     }
 
     return mViewProperties;
+  }
+
+  private List<AccessibilityNodeInfoMethodBackedCSSProperty> getAccessibilityNodeInfoProperties() {
+    if (mAccessibilityNodeInfoProperties == null) {
+      synchronized (this) {
+        if (mAccessibilityNodeInfoProperties == null) {
+          List<AccessibilityNodeInfoMethodBackedCSSProperty> props = new ArrayList<>();
+
+          for (final Method method : AccessibilityNodeInfoWrapper.class.getDeclaredMethods()) {
+            ViewDebug.ExportedProperty annotation =
+                    method.getAnnotation(
+                            ViewDebug.ExportedProperty.class);
+
+            if (annotation != null) {
+              props.add(new AccessibilityNodeInfoMethodBackedCSSProperty(
+                      method,
+                      convertViewPropertyNameToCSSName(method.getName()),
+                      annotation));
+            }
+          }
+          mAccessibilityNodeInfoProperties = Collections.unmodifiableList(props);
+        }
+      }
+    }
+
+    return mAccessibilityNodeInfoProperties;
   }
 
   public ViewDescriptor() {
@@ -164,6 +199,31 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
     List<ViewCSSProperty> properties = getViewProperties();
     for (int i = 0, size = properties.size(); i < size; i++) {
       ViewCSSProperty property = properties.get(i);
+      try {
+        getStyleFromValue(
+            element,
+            property.getCSSName(),
+            property.getValue(element),
+            property.getAnnotation(),
+            styles);
+      } catch (Exception e) {
+        if (e instanceof IllegalAccessException || e instanceof InvocationTargetException) {
+          LogUtil.e(e, "failed to get style property " + property.getCSSName() +
+                  " of element= " + element.toString());
+        } else {
+          throw ExceptionUtil.propagate(e);
+        }
+      }
+    }
+  }
+
+  @Override
+  protected void onGetAccessibilityNodeInfo(View element, StyleAccumulator styles) {
+    List<AccessibilityNodeInfoMethodBackedCSSProperty> properties =
+        getAccessibilityNodeInfoProperties();
+
+    for (int i = 0, size = properties.size(); i < size; i++) {
+      AccessibilityNodeInfoMethodBackedCSSProperty property = properties.get(i);
       try {
         getStyleFromValue(
             element,
@@ -449,6 +509,30 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
     @Override
     public Object getValue(View view) throws InvocationTargetException, IllegalAccessException {
       return mMethod.invoke(view);
+    }
+  }
+
+  private final class AccessibilityNodeInfoMethodBackedCSSProperty extends ViewCSSProperty {
+    private final Method mMethod;
+
+    public AccessibilityNodeInfoMethodBackedCSSProperty(
+            Method method,
+            String cssName,
+            @Nullable ViewDebug.ExportedProperty annotation) {
+      super(cssName, annotation);
+      mMethod = method;
+      mMethod.setAccessible(true);
+    }
+
+    @Override
+    public Object getValue(View view) throws InvocationTargetException, IllegalAccessException {
+      AccessibilityNodeInfoCompat nodeInfo = AccessibilityNodeInfoCompat.obtain();
+      ViewCompat.onInitializeAccessibilityNodeInfo(view, nodeInfo);
+      AccessibilityNodeInfoWrapper nodeInfoWrapper =
+              new AccessibilityNodeInfoWrapper(nodeInfo, view);
+      Object value = mMethod.invoke(nodeInfoWrapper);
+      nodeInfo.recycle();
+      return value;
     }
   }
 
