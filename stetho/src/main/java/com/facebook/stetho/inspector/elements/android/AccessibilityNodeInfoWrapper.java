@@ -11,8 +11,11 @@ package com.facebook.stetho.inspector.elements.android;
 
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
+import android.text.TextUtils;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.widget.EditText;
 
 import com.facebook.stetho.common.android.AccessibilityUtil;
 
@@ -98,6 +101,55 @@ public final class AccessibilityNodeInfoWrapper {
     }
 
     return "View is not actionable and has no description.";
+  }
+
+  public static CharSequence getDescription(AccessibilityNodeInfoCompat node, View view) {
+    CharSequence contentDescription = node.getContentDescription();
+    CharSequence nodeText = node.getText();
+
+    boolean hasNodeText = !TextUtils.isEmpty(nodeText);
+    boolean isEditText = view instanceof EditText;
+
+    // EditText's prioritize their own text content over a contentDescription
+    if (!TextUtils.isEmpty(contentDescription) && (!isEditText || !hasNodeText)) {
+      return contentDescription;
+    }
+
+    if (hasNodeText) {
+      return nodeText;
+    }
+
+    // If there are child views and no contentDescription the text of all non-focusable children,
+    // comma separated, becomes the description.
+    if (view instanceof ViewGroup) {
+      String concatChildDescription = "";
+      String separator = ", ";
+      ViewGroup viewGroup = (ViewGroup) view;
+
+      for (int i = 0; i < viewGroup.getChildCount(); i++) {
+        final View child = viewGroup.getChildAt(i);
+
+        AccessibilityNodeInfoCompat childNodeInfo = AccessibilityNodeInfoCompat.obtain();
+        ViewCompat.onInitializeAccessibilityNodeInfo(child, childNodeInfo);
+
+        CharSequence childNodeDescription = null;
+        if (AccessibilityUtil.isSpeakingNode(childNodeInfo, child)) {
+          childNodeDescription = getDescription(childNodeInfo, child);
+        }
+
+        if (!TextUtils.isEmpty(childNodeDescription)) {
+          if (concatChildDescription != "") {
+            concatChildDescription += separator;
+          }
+          concatChildDescription += childNodeDescription;
+        }
+        childNodeInfo.recycle();
+      }
+
+      return !TextUtils.isEmpty(concatChildDescription) ? concatChildDescription : null;
+    }
+
+    return null;
   }
 
 }

@@ -204,8 +204,14 @@ final class ViewDescriptor extends AbstractChainedDescriptor<View> implements Hi
           AccessibilityNodeInfoWrapper.getIgnoredReasons(nodeInfo, element),
           null,
           styles);
+    } else {
+      getStyleFromValue(
+          element,
+          "description",
+          AccessibilityNodeInfoWrapper.getDescription(nodeInfo, element),
+          null,
+          styles);
     }
-
     nodeInfo.recycle();
   }
 
